@@ -19,18 +19,24 @@ import android.widget.Button;
 import android.widget.Toast;
 
 import com.example.audioplaybackcapture.log.LogHandler;
-import com.example.audioplaybackcapture.permission.PermissionManager;
 import com.example.audioplaybackcapture.service.AudioForegroundService;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     private final String TAG = MainActivity.class.getSimpleName();
-    private final int WRITE_EXTERNAL_STORAGE_REQUEST_CODE = 12;
+    private final int REQUEST_CODE = 13;
 
     private Button startBtn;
     private Button stopBtn;
 
-    private PermissionManager permissionManager;
+    private String [] appPermissions = {
+        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,33 +52,16 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         startBtn.setEnabled(true);
         stopBtn.setEnabled(false);
 
-        permissionManager = new PermissionManager(this);
     }
 
     @Override
     public void onClick(View v) {
         if(v == startBtn){
-            permissionManager.checkPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE, new PermissionManager.PermissionAskListener() {
-                @Override
-                public void onNeedPermission() {
-                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, WRITE_EXTERNAL_STORAGE_REQUEST_CODE);
-                }
 
-                @Override
-                public void onPermissionPreviouslyDenied() {
-                    showPermissionRational();
-                }
+            if(checkAndRequestPermissions()){
+                startAudioRecord();
+            }
 
-                @Override
-                public void onPermissionPreviouslyDeniedWithNeverAskAgain() {
-                    dialogForSettings("Permission Denied", "Now you must allow write external storage from settings.");
-                }
-
-                @Override
-                public void onPermissionGranted() {
-                    startAudioRecord();
-                }
-            });
         } else {
             stopAudioRecord();
         }
@@ -112,8 +101,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         startActivity(intent);
     }
 
-    private void showPermissionRational(){
-        new AlertDialog.Builder(this).setTitle("Permission Denied").setMessage("Without this permission app is unable to record system sound.")
+    private void showPermissionRational(String permission){
+        new AlertDialog.Builder(this).setTitle("Permission Denied").setMessage("Without "+ permission +" permission app is unable to record system sound.")
                 .setCancelable(false)
                 .setNegativeButton("I'M SURE", new DialogInterface.OnClickListener() {
                     @Override
@@ -124,7 +113,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 .setPositiveButton("RETRY", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
-                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, WRITE_EXTERNAL_STORAGE_REQUEST_CODE);
+                        checkAndRequestPermissions();
                         dialog.dismiss();
                     }
                 })
@@ -149,16 +138,47 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 }).show();
     }
 
+    public boolean checkAndRequestPermissions(){
+        List < String > listPermissionsNeeded = new ArrayList<>();
+        for(String permission : appPermissions){
+            if(ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED){
+                listPermissionsNeeded.add(permission);
+            }
+        }
+
+        if(!listPermissionsNeeded.isEmpty()){
+            ActivityCompat.requestPermissions(this, listPermissionsNeeded.toArray(new String[listPermissionsNeeded.size()]), REQUEST_CODE);
+            return false;
+        }
+
+        return true;
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode){
-            case WRITE_EXTERNAL_STORAGE_REQUEST_CODE:
-                if(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    LogHandler.d(TAG, "Write External Storage accepted");
-                    startAudioRecord();
+        if (requestCode == REQUEST_CODE){
+            HashMap < String, Integer > permissionResults = new HashMap<>();
+            int deniedCount = 0;
+            for(int permissionIndx = 0; permissionIndx < permissions.length; permissionIndx++){
+                if(grantResults[permissionIndx] != PackageManager.PERMISSION_GRANTED){
+                    LogHandler.d(TAG, permissions[permissionIndx]);
+                    permissionResults.put(permissions[permissionIndx], grantResults[permissionIndx]);
+                    deniedCount++;
                 }
-                break;
+            }
+            if(deniedCount == 0){
+                startAudioRecord();
+            } else {
+                for(Map.Entry < String, Integer > entry : permissionResults.entrySet()){
+                    String permName = entry.getKey();
+                    int permResult = entry.getValue();
+                    if(ActivityCompat.shouldShowRequestPermissionRationale(this, permName)){
+                        showPermissionRational(permName);
+                    } else {
+                        dialogForSettings("Permission Denied", "Now you must allow "+ permName +" permission from settings.");
+                    }
+                }
+            }
         }
     }
 
